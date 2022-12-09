@@ -1,5 +1,7 @@
+#![allow(non_snake_case)]
+
 use dioxus::prelude::*;
-use dioxus_desktop::{tao::platform::macos::WindowBuilderExtMacOS, WindowBuilder};
+use dioxus_desktop::{tao::platform::macos::WindowBuilderExtMacOS, use_window, WindowBuilder};
 use google_gmail1::api::Message;
 mod activites;
 mod mail;
@@ -31,9 +33,13 @@ fn main() {
             .with_custom_head(CUSTOM_HEAD.into())
             .with_window(
                 WindowBuilder::new()
-                    .with_decorations(false)
-                    .with_transparent(true)
-                    .with_titlebar_transparent(true)
+                    // .with_decorations(false)
+                    .with_titlebar_hidden(true)
+                    .with_has_shadow(true)
+                    // .with_title_hidden(true)
+                    // .with_transparent(true)
+                    .with_titlebar_buttons_hidden(false)
+                    // .with_titlebar_transparent(true)
                     .with_maximized(true),
             ),
     );
@@ -41,17 +47,23 @@ fn main() {
 
 fn app(cx: Scope) -> Element {
     cx.render(rsx! {
-        div { class: "flex flex-row rounded-lg overflow-hidden", id: "bodywrap",
-            side_bar {}
-            message_list {}
-            preview_message {}
+        div { class: "flex flex-row rounded-lg overflow-hidden border border-gray-200", id: "bodywrap",
+            SideBar {}
+            Messages {}
+            Preview {}
         }
     })
 }
 
-fn side_bar(cx: Scope) -> Element {
+fn SideBar(cx: Scope) -> Element {
     cx.render(rsx! {
-        div { class: "bg-gray-200 p-4 w-40", opacity: "0.95",
+        div { class: "bg-gray-200 p-4 w-40 border-r border-gray-200", opacity: "0.98",
+            // mimic some traffic lights
+            div { class: "flex flex-row items-center py-2",
+                div { class: "w-3 h-3 mx-2 rounded-full bg-red-500" }
+                div { class: "w-3 h-3 mx-2 rounded-full bg-yellow-500" }
+                div { class: "w-3 h-3 mx-2 rounded-full bg-green-500" }
+            }
             h1 { "Sidebar" }
             ul { class: "list-disc truncate",
                 li { "Inbox" }
@@ -63,15 +75,15 @@ fn side_bar(cx: Scope) -> Element {
     })
 }
 
-fn message_list(cx: Scope<'_>) -> Element {
+fn Messages(cx: Scope<'_>) -> Element {
     let messages = use_state(cx, || {
         // check if the index already exists
         // if it does, load it and return it
         // todo: update the cache
-        match std::fs::read_to_string("data/sensitive/index.json").map(|s| serde_json::from_str(&s))
+        if let Ok(Ok(index)) =
+            std::fs::read_to_string("data/sensitive/index.json").map(|s| serde_json::from_str(&s))
         {
-            Ok(Ok(index)) => return index,
-            _ => log::info!("Index not found, downloading messages"),
+            return index;
         }
 
         Vec::<google_gmail1::api::Message>::new()
@@ -87,24 +99,29 @@ fn message_list(cx: Scope<'_>) -> Element {
         }
     });
 
+    let window = use_window(cx);
+
     cx.render(rsx! {
-        div { class: "flex-col flex-grow w-1/2 bg-white",
+        div { class: "flex-col flex-grow w-1/3",
             div { class: "flex-grow h-full",
-                div { class: "p-2 bg-white border-b border-gray-400 flex flex-row justify-between items-center h-12",
+                div {
+                    class: "p-2 bg-gray-100 border-b bg-gray-200 border-gray-200 flex flex-row justify-between items-center h-12 cursor-default",
+                    onmousedown: move |_| window.drag(),
+
                     // Helpful display info on the left of the row
                     div { class: "flex flex-col",
-                        h1 { class: "font-bold text-sm", "Important -- Google " }
-                        h3 { class: "text-xs", "2,5438 messages, 100 unread" }
+                        h1 { class: "font-bold text-sm text-gray-800", "Inbox - Google " }
+                        h3 { class: "text-xs text-gray-500", "2,5438 messages, 100 unread" }
                     }
 
                     // Filters for Primary, Social, Promotions, Updates, Forums
                     FilterGroup {}
                 }
 
-                div { class: "h-full flex flex-col items-stretch",
+                div { class: "h-full flex flex-col items-stretch bg-white",
                     div { class: "flex flex-row flex-auto min-h-0",
                         div { class: "flex flex-col items-stretch min-h-0 overflow-x-hidden", style: "flex: 0 0 100%;",
-                            div { class: "bg-gray-200 text-bold font-sm flex flex-row border-b border-gray-400",
+                            div { class: "text-bold font-sm flex flex-row border-b border-gray-200",
                                 div { class: "flex-1 overflow-hidden ml-4", "From" }
                                 div { class: "flex-1 overflow-hidden ml-4", "Snippet" }
                                 div { class: "flex-1 overflow-hidden ml-4", "Date" }
@@ -163,12 +180,12 @@ fn message_li<'a>(cx: Scope<'a>, message: &'a Message) -> Element {
     })
 }
 
-fn preview_message(cx: Scope) -> Element {
+fn Preview(cx: Scope) -> Element {
     cx.render(rsx!(
         //
-        div { class: "flex flex-col bg-gray-500 flex-grow",
-            div { class: "flex bg-gray-100 p-4 h-12", "toolbar goes here" }
-            div { class: "m-auto", "no message selected" }
+        div { class: "flex flex-col bg-white flex-grow border-l border-gray-200",
+            div { class: "flex bg-gray-100 border-b border-gray-200 p-4 h-12", "toolbar goes here" }
+            div { class: "m-auto border-t ", "no message selected" }
         }
     ))
 }

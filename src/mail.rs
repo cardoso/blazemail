@@ -1,3 +1,5 @@
+mod open_browser_delegate;
+
 use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
 use google_gmail1::{
@@ -8,12 +10,15 @@ use google_gmail1::{
         authorized_user::AuthorizedUserSecret,
         storage::{TokenInfo, TokenStorage},
         ApplicationSecret, AuthorizedUserAuthenticator, InstalledFlowAuthenticator,
+        InstalledFlowReturnMethod,
     },
     Gmail,
 };
 use hyper::client::HttpConnector;
 use hyper_rustls::HttpsConnector;
 use tokio::task::JoinSet;
+
+use self::open_browser_delegate::OpenBrowserDelegate;
 
 static GMAIL_SCOPES: &[&str] = &[
     "https://mail.google.com/",                         // email
@@ -23,36 +28,19 @@ static GMAIL_SCOPES: &[&str] = &[
     "https://www.googleapis.com/auth/calendar",         // calendar
 ];
 
-struct OpenBrowserDelegate;
-impl InstalledFlowDelegate for OpenBrowserDelegate {
-    fn present_user_url<'a>(
-        &'a self,
-        url: &'a str,
-        need_code: bool,
-    ) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send + 'a>> {
-        Box::pin(async move {
-            webbrowser::open(url).unwrap();
-            Ok(String::new())
-        })
-    }
-}
-
 async fn make_client() -> Gmail<HttpsConnector<HttpConnector>> {
     // yes, you do indeed distribute your client secret with your app
     // it's fine to do this, but please don't abuse our API access <3
-    let secret = google_gmail1::oauth2::read_application_secret("client_secret.json")
+    let secret = google_gmail1::oauth2::read_application_secret("data/client_secret.json")
         .await
         .unwrap();
 
-    let auth = InstalledFlowAuthenticator::builder(
-        secret,
-        google_gmail1::oauth2::InstalledFlowReturnMethod::HTTPRedirect,
-    )
-    .persist_tokens_to_disk("tokencache.json")
-    .flow_delegate(Box::new(OpenBrowserDelegate))
-    .build()
-    .await
-    .unwrap();
+    let auth = InstalledFlowAuthenticator::builder(secret, InstalledFlowReturnMethod::HTTPRedirect)
+        .persist_tokens_to_disk("data/sensitive/tokencache.json") // todo: implement a secure custom token storage provider
+        .flow_delegate(Box::new(OpenBrowserDelegate))
+        .build()
+        .await
+        .unwrap();
 
     let client = hyper::Client::builder().build(
         hyper_rustls::HttpsConnectorBuilder::new()
@@ -63,7 +51,18 @@ async fn make_client() -> Gmail<HttpsConnector<HttpConnector>> {
             .build(),
     );
 
-    Gmail::new(client, auth)
+    let hub = Gmail::new(client, auth);
+
+    // do a quick query to make sure we're authenticated
+    let (result, _) = hub
+        .users()
+        .get_profile("me")
+        .add_scope("https://mail.google.com/")
+        .doit()
+        .await
+        .unwrap();
+
+    hub
 }
 
 #[tokio::test]
@@ -74,7 +73,6 @@ async fn list_messages_works() {
         .users()
         .messages_list("jkelleyrtp@gmail.com")
         .add_scope("https://mail.google.com/")
-        // .add_scope("https://www.googleapis.com/auth/gmail.metadata")
         .doit()
         .await
         .unwrap();
@@ -110,7 +108,7 @@ async fn load_next_page() {
 }
 
 pub async fn download_recent_messages() -> Vec<google_gmail1::api::Message> {
-    let messages = std::fs::read_to_string("data/sensitive/messages2.json").unwrap();
+    let messages = std::fs::read_to_string("data/sensitive/messages.json").unwrap();
     let messages = serde_json::from_str::<ListMessagesResponse>(&messages).unwrap();
 
     let hub = make_client().await;
